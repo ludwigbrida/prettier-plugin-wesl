@@ -1,7 +1,7 @@
 # prettier-plugin-wesl
 
 A Prettier 3 plugin for stable WESL syntax. It registers the `wesl` parser for
-`.wesl` files.
+`*.wesl` files.
 
 > [!WARNING]
 > This AI-generated slop exists mainly to support development of my own
