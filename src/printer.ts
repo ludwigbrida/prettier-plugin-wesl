@@ -112,6 +112,10 @@ function formatItem(
   let templateDepth = 0;
   let previous: string | undefined;
   const delimiters: DelimiterContext[] = [];
+  const firstFunctionIndex = tokens.findIndex((token) => token.image === "fn");
+  const hasLeadingFunctionAttribute =
+    firstFunctionIndex > 0 &&
+    tokens.slice(0, firstFunctionIndex).some((token) => token.image === "@");
   const atLineStart = () => output.length === 0 || output.endsWith("\n");
   const newline = () => {
     output = output.replace(/[ \t]+$/, "");
@@ -268,6 +272,11 @@ function formatItem(
         newline();
       }
     } else {
+      if (image === "fn" && hasLeadingFunctionAttribute && !atLineStart()) {
+        newline();
+        previous = undefined;
+      }
+
       if (
         !(templateDepth > 0 && previous === "<") &&
         requiresSpace(previous, image)
