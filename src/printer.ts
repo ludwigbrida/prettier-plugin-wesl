@@ -96,13 +96,14 @@ function requiresSpace(previous: string | undefined, current: string): boolean {
 }
 
 interface DelimiterContext {
-  kind: "paren" | "list" | "block";
+  kind: "paren" | "import" | "list" | "block";
   multiline: boolean;
 }
 
 function formatItem(
   tokens: IToken[],
   options: { tabWidth?: number; useTabs?: boolean; printWidth?: number },
+  flatImports = false,
 ): string {
   const indentUnit = options.useTabs ? "\t" : " ".repeat(options.tabWidth ?? 2);
   const printWidth = options.printWidth ?? 80;
@@ -126,20 +127,24 @@ function formatItem(
 
     output += text;
   };
-  const isListBrace = (index: number) => {
+  const braceKind = (index: number): DelimiterContext["kind"] => {
     for (let cursor = index - 1; cursor >= 0; cursor--) {
       const image = tokens[cursor].image;
 
       if (image === ";" || image === "}") {
-        return false;
+        return "block";
       }
 
-      if (image === "import" || image === "struct") {
-        return true;
+      if (image === "import") {
+        return "import";
+      }
+
+      if (image === "struct") {
+        return "list";
       }
     }
 
-    return false;
+    return "block";
   };
   const currentLineLength = () => output.length - output.lastIndexOf("\n") - 1;
   const nextIsClose = (index: number) =>
@@ -167,24 +172,38 @@ function formatItem(
       }
 
       append("{");
+      const kind = braceKind(index);
+      const multiline = kind !== "import" || !flatImports;
+
       delimiters.push({
-        kind: isListBrace(index) ? "list" : "block",
-        multiline: true,
+        kind,
+        multiline,
       });
-      indentation++;
-      newline();
+
+      if (multiline) {
+        indentation++;
+        newline();
+      }
       previous = image;
       continue;
     }
     if (image === "}") {
       const context = delimiters.pop();
 
-      if (context?.kind === "list" && previous !== "," && previous !== "{") {
+      if (
+        (context?.kind === "list" ||
+          (context?.kind === "import" && context.multiline)) &&
+        previous !== "," &&
+        previous !== "{"
+      ) {
         append(",");
       }
 
-      indentation = Math.max(0, indentation - 1);
-      newline();
+      if (context?.multiline) {
+        indentation = Math.max(0, indentation - 1);
+        newline();
+      }
+
       append("}");
       previous = image;
       continue;
@@ -222,7 +241,9 @@ function formatItem(
       }
       append(",");
       const context = delimiters.at(-1);
-      if (templateDepth > 0 || context?.kind === "paren") {
+      if (context?.kind === "import" && !context.multiline) {
+        append(" ");
+      } else if (templateDepth > 0 || context?.kind === "paren") {
         if (
           context?.kind === "paren" &&
           (context.multiline || currentLineLength() > printWidth - 8)
@@ -261,6 +282,16 @@ function formatItem(
   return output.replace(/[ \t\n]+$/, "");
 }
 
+function shouldPrintImportFlat(
+  tokens: IToken[],
+  options: { printWidth?: number },
+): boolean {
+  const output = formatItem(tokens, options, true);
+  const printWidth = options.printWidth ?? 80;
+
+  return !output.includes("\n") && output.length <= printWidth;
+}
+
 export const printer = {
   print(
     path: { node: WeslProgram },
@@ -275,7 +306,10 @@ export const printer = {
             ? "\n\n"
             : "\n"
           : "";
-        return `${formatItem(item.tokens, options)}${separator}`;
+        const flatImports =
+          item.kind === "Import" && shouldPrintImportFlat(item.tokens, options);
+
+        return `${formatItem(item.tokens, options, flatImports)}${separator}`;
       })
       .join("")}\n`;
   },
