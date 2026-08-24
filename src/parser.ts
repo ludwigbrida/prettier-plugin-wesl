@@ -44,6 +44,21 @@ function hasComments(tokens: ReturnType<typeof lex>["tokens"]): boolean {
   );
 }
 
+function hasWeslSyntaxAfter(
+  tokens: ReturnType<typeof lex>["tokens"],
+  offset: number,
+): boolean {
+  return tokens.some(
+    (token, index) =>
+      (token.startOffset ?? 0) >= offset &&
+      (weslOnlyTokens.has(token.image) ||
+        (token.image === "@" &&
+          (tokens[index + 1]?.image === "if" ||
+            tokens[index + 1]?.image === "elif" ||
+            tokens[index + 1]?.image === "else"))),
+  );
+}
+
 function shiftOffsets(value: unknown, offset: number): void {
   if (typeof value !== "object" || value === null) {
     return;
@@ -138,14 +153,16 @@ function parseWesl(source: string): WeslProgram {
     firstDeclaration > 0 &&
     body.slice(0, firstDeclaration).every((item) => item.kind === "Import") &&
     body.slice(firstDeclaration).every((item) => item.kind === "Declaration");
+  const declarationsStart =
+    firstDeclaration > 0 ? body[firstDeclaration - 1].end : 0;
 
   if (
     firstDeclaration > 0 &&
     hasOnlyLeadingImports &&
     !hasConditionalAttribute(tokens) &&
-    !hasComments(tokens)
+    !hasComments(tokens) &&
+    !hasWeslSyntaxAfter(tokens, declarationsStart)
   ) {
-    const declarationsStart = body[firstDeclaration - 1].end;
     const translationUnit = wgslParsers.wgsl.parse(
       source.slice(declarationsStart),
     ) as Program;

@@ -382,7 +382,7 @@ export const printer: {
         const separatesImports =
           isWeslItem(previous) &&
           previous.kind === "Import" &&
-          !isWeslItem(current);
+          !(isWeslItem(current) && current.kind === "Import");
 
         result.push(hardline, ...(separatesImports ? [hardline] : []));
       }
