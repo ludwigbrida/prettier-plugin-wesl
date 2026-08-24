@@ -1,0 +1,32 @@
+{
+  "name": "prettier-plugin-wesl",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "format": "prettier -w .",
+    "prepare": "npm run build"
+  },
+  "peerDependencies": {
+    "prettier": "^3.0.0"
+  },
+  "dependencies": {
+    "chevrotain": "11.2.0"
+  },
+  "devDependencies": {
+    "lefthook": "2.1.10",
+    "prettier": "3.9.6",
+    "prettier-plugin-organize-imports": "4.3.0",
+    "typescript": "5.9.3"
+  }
+}
