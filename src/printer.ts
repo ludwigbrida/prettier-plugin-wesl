@@ -127,6 +127,10 @@ function formatItem(
       output += "\n";
     }
   };
+  const blankline = () => {
+    newline();
+    output += "\n";
+  };
   const append = (text: string) => {
     if (atLineStart()) {
       output += indentUnit.repeat(indentation);
@@ -263,6 +267,8 @@ function formatItem(
       const context = delimiters.at(-1);
       if (context?.kind === "import" && !context.multiline) {
         append(" ");
+      } else if (context?.kind === "list") {
+        blankline();
       } else if (templateDepth > 0 || context?.kind === "paren") {
         if (
           context?.kind === "paren" &&
@@ -318,7 +324,7 @@ function shouldPrintImportFlat(
 }
 
 const wgslPrinter = wgslPrinters["wgsl-ast"];
-const { hardline } = doc.builders;
+const { hardline, indent, join } = doc.builders;
 
 function isWgslNode(node: unknown): boolean {
   return typeof node === "object" && node !== null && "kind" in node;
@@ -331,6 +337,42 @@ function isWeslItem(node: unknown): node is WeslItem {
     "type" in node &&
     node.type === "Item"
   );
+}
+
+function isStructDeclaration(
+  node: unknown,
+): node is { kind: "StructDeclaration"; name: string; members: unknown[] } {
+  return (
+    typeof node === "object" &&
+    node !== null &&
+    "kind" in node &&
+    node.kind === "StructDeclaration"
+  );
+}
+
+function printStructWithBlankLines(
+  path: { node: { name: string; members: unknown[] } },
+  print: unknown,
+): Doc {
+  if (path.node.members.length === 0) {
+    return `struct ${path.node.name} {}`;
+  }
+
+  const members = (
+    path as unknown as {
+      map: (print: unknown, property: string) => Doc[];
+    }
+  ).map(print, "members");
+
+  return [
+    "struct ",
+    path.node.name,
+    " {",
+    indent([hardline, join([",", hardline, hardline], members)]),
+    ",",
+    hardline,
+    "}",
+  ];
 }
 
 export const printer: {
@@ -359,6 +401,10 @@ export const printer: {
     }
 
     if (isWgslNode(path.node)) {
+      if (isStructDeclaration(path.node)) {
+        return printStructWithBlankLines(path as never, print);
+      }
+
       return wgslPrinter.print(
         path as never,
         options as never,
