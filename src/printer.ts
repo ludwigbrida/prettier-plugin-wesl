@@ -1,5 +1,8 @@
 import type { IToken } from "chevrotain";
-import type { WeslProgram } from "./ast.js";
+import type { Doc } from "prettier";
+import { doc } from "prettier";
+import { printers as wgslPrinters } from "prettier-plugin-wgsl";
+import type { WeslItem, WeslProgram } from "./ast.js";
 
 const word = /^[A-Za-z0-9_]/;
 const noSpaceBefore = new Set([")", "]", ",", ";", ".", "::", ":"]);
@@ -40,7 +43,7 @@ const binaryOperators = new Set([
 ]);
 const isTemplateHead = (value: string | undefined) =>
   value !== undefined &&
-  /^(?:vec[2-4]|mat[2-4]x[2-4]|array|ptr|atomic|bitcast|texture(?:_[a-z0-9]+)+)$/i.test(
+  /^(?:var|vec[2-4]|mat[2-4]x[2-4]|array|ptr|atomic|bitcast|texture(?:_[a-z0-9]+)+)$/i.test(
     value,
   );
 
@@ -214,8 +217,11 @@ function formatItem(
     }
     if (image === "(") {
       delimiters.push({ kind: "paren", multiline: false });
+      const isConditionalAttribute =
+        (previous === "if" || previous === "elif") &&
+        tokens[index - 2]?.image === "@";
 
-      if (requiresSpace(previous, image)) {
+      if (!isConditionalAttribute && requiresSpace(previous, image)) {
         append(" ");
       }
 
@@ -240,6 +246,16 @@ function formatItem(
       templateDepth--;
     } else if (image === ",") {
       if (nextIsClose(index)) {
+        const context = delimiters.at(-1);
+
+        if (
+          context?.kind === "list" ||
+          (context?.kind === "import" && context.multiline) ||
+          (context?.kind === "paren" && context.multiline)
+        ) {
+          append(",");
+        }
+
         previous = image;
         continue;
       }
@@ -301,28 +317,96 @@ function shouldPrintImportFlat(
   return !output.includes("\n") && output.length <= printWidth;
 }
 
-export const printer = {
-  print(
-    path: { node: WeslProgram },
-    options: { tabWidth?: number; useTabs?: boolean; printWidth?: number },
-  ) {
-    const { body } = path.node;
-    return `${body
-      .map((item, index) => {
-        const next = body[index + 1];
-        const separator = next
-          ? item.kind === "Import" && next.kind !== "Import"
-            ? "\n\n"
-            : "\n"
-          : "";
-        const flatImports =
-          item.kind === "Import" && shouldPrintImportFlat(item.tokens, options);
+const wgslPrinter = wgslPrinters["wgsl-ast"];
+const { hardline } = doc.builders;
 
-        return `${formatItem(item.tokens, options, flatImports)}${separator}`;
-      })
-      .join("")}\n`;
+function isWgslNode(node: unknown): boolean {
+  return typeof node === "object" && node !== null && "kind" in node;
+}
+
+function isWeslItem(node: unknown): node is WeslItem {
+  return (
+    typeof node === "object" &&
+    node !== null &&
+    "type" in node &&
+    node.type === "Item"
+  );
+}
+
+export const printer: {
+  print: (
+    path: { node: unknown },
+    options: { tabWidth?: number; useTabs?: boolean; printWidth?: number },
+    print: unknown,
+    args: unknown,
+  ) => Doc;
+  canAttachComment: (node: unknown) => boolean;
+  printComment: (path: unknown) => Doc;
+  getCommentChildNodes: (node: unknown) => object[];
+} = {
+  print(
+    path: { node: unknown },
+    options: { tabWidth?: number; useTabs?: boolean; printWidth?: number },
+    print: unknown,
+    args: unknown,
+  ) {
+    if (isWeslItem(path.node)) {
+      const flatImports =
+        path.node.kind === "Import" &&
+        shouldPrintImportFlat(path.node.tokens, options);
+
+      return formatItem(path.node.tokens, options, flatImports);
+    }
+
+    if (isWgslNode(path.node)) {
+      return wgslPrinter.print(
+        path as never,
+        options as never,
+        print as never,
+        args,
+      );
+    }
+
+    const { body } = path.node as WeslProgram;
+    const docs = (
+      path as unknown as {
+        map: (print: unknown, property: string) => Doc[];
+      }
+    ).map(print, "body");
+    const result: Doc[] = [];
+
+    for (let index = 0; index < docs.length; index++) {
+      if (index > 0) {
+        const previous = body[index - 1];
+        const current = body[index];
+        const separatesImports =
+          isWeslItem(previous) &&
+          previous.kind === "Import" &&
+          !isWeslItem(current);
+
+        result.push(hardline, ...(separatesImports ? [hardline] : []));
+      }
+
+      result.push(docs[index]);
+    }
+
+    return isWeslItem(body.at(-1)) ? [...result, hardline] : result;
   },
-  getVisitorKeys() {
-    return [];
+  canAttachComment(node) {
+    return wgslPrinter.canAttachComment(node as never);
+  },
+  printComment(path) {
+    return wgslPrinter.printComment(path as never);
+  },
+  getCommentChildNodes(node) {
+    if (isWgslNode(node)) {
+      return wgslPrinter.getCommentChildNodes(node as never);
+    }
+
+    if (!isWeslItem(node) && typeof node === "object" && node !== null) {
+      return (node as WeslProgram).body;
+    }
+
+    return wgslPrinter.getCommentChildNodes(node as never);
   },
 };

@@ -1,3 +1,4 @@
+import type { CustomPatternMatcherFunc } from "chevrotain";
 import { Lexer, createToken } from "chevrotain";
 
 const makeKeyword = (word: string) =>
@@ -5,6 +6,33 @@ const makeKeyword = (word: string) =>
     name: `Keyword_${word}`,
     pattern: new RegExp(`${word}\\b`),
   });
+
+const matchBlockComment: CustomPatternMatcherFunc = (text, startOffset) => {
+  if (text[startOffset] !== "/" || text[startOffset + 1] !== "*") {
+    return null;
+  }
+
+  let depth = 1;
+  let offset = startOffset + 2;
+
+  while (offset < text.length && depth > 0) {
+    if (text[offset] === "/" && text[offset + 1] === "*") {
+      depth++;
+      offset += 2;
+    } else if (text[offset] === "*" && text[offset + 1] === "/") {
+      depth--;
+      offset += 2;
+    } else {
+      offset++;
+    }
+  }
+
+  if (depth !== 0) {
+    return null;
+  }
+
+  return [text.slice(startOffset, offset)];
+};
 
 export const Whitespace = createToken({
   name: "Whitespace",
@@ -20,18 +48,21 @@ export const LineComment = createToken({
 
 export const BlockComment = createToken({
   name: "BlockComment",
-  pattern: /\/\*[\s\S]*?\*\//,
+  pattern: { exec: matchBlockComment },
   group: "comments",
+  line_breaks: true,
+  start_chars_hint: ["/"],
 });
 
 export const HexFloat = createToken({
   name: "HexFloat",
-  pattern: /0x[0-9a-fA-F]+(?:\.[0-9a-fA-F]*)?[pP][+-]?\d+[fh]?/,
+  pattern:
+    /0[xX][0-9a-fA-F]*\.[0-9a-fA-F]*(?:[pP][+-]?\d+)?[fh]?|0[xX][0-9a-fA-F]+[pP][+-]?\d+[fh]?/,
 });
 
 export const HexInteger = createToken({
   name: "HexInteger",
-  pattern: /0x[0-9a-fA-F]+[iu]?/,
+  pattern: /0[xX][0-9a-fA-F]+[iu]?/,
 });
 
 export const NumberLiteral = createToken({
@@ -71,6 +102,7 @@ export const keywords = [
   "as",
   "package",
   "super",
+  "self",
   "public",
   "private",
 ].map(makeKeyword);

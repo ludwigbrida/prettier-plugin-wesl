@@ -14,5 +14,15 @@ export interface WeslItem extends WeslNode {
 
 export interface WeslProgram extends WeslNode {
   type: "Program";
-  body: WeslItem[];
+  body: ProgramEntry[];
 }
+
+export interface WgslProgram {
+  kind: "TranslationUnit";
+  start: number;
+  end: number;
+}
+
+export type ProgramEntry = WeslItem | WgslProgram;
+
+export type Program = WeslProgram | WgslProgram;
