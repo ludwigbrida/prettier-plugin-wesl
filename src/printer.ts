@@ -350,6 +350,19 @@ function isStructDeclaration(
   );
 }
 
+function isTranslationUnit(node: unknown): node is {
+  kind: "TranslationUnit";
+  directives: unknown[];
+  declarations: unknown[];
+} {
+  return (
+    typeof node === "object" &&
+    node !== null &&
+    "kind" in node &&
+    node.kind === "TranslationUnit"
+  );
+}
+
 function printStructWithBlankLines(
   path: { node: { name: string; members: unknown[] } },
   print: unknown,
@@ -375,10 +388,61 @@ function printStructWithBlankLines(
   ];
 }
 
+function printTranslationUnitWithBlankLines(
+  path: {
+    node: {
+      directives: unknown[];
+      declarations: unknown[];
+    };
+  },
+  print: unknown,
+): Doc {
+  const docsPath = path as unknown as {
+    map: (print: unknown, property: string) => Doc[];
+  };
+  const directives = docsPath.map(print, "directives");
+  const declarations = docsPath.map(print, "declarations");
+  const result: Doc[] = [];
+
+  for (const directive of directives) {
+    if (result.length > 0) {
+      result.push(hardline);
+    }
+
+    result.push(directive);
+  }
+
+  for (const declaration of declarations) {
+    if (result.length > 0) {
+      result.push(hardline, hardline);
+    }
+
+    result.push(declaration);
+  }
+
+  return result.length === 0 ? "" : [...result, hardline];
+}
+
+function hasBlankLineBetween(
+  previous: { end: number },
+  current: { start: number },
+  source: string | undefined,
+): boolean {
+  return (
+    source !== undefined &&
+    /\r?\n[\t ]*\r?\n/.test(source.slice(previous.end, current.start))
+  );
+}
+
 export const printer: {
   print: (
     path: { node: unknown },
-    options: { tabWidth?: number; useTabs?: boolean; printWidth?: number },
+    options: {
+      tabWidth?: number;
+      useTabs?: boolean;
+      printWidth?: number;
+      originalText?: string;
+    },
     print: unknown,
     args: unknown,
   ) => Doc;
@@ -388,7 +452,12 @@ export const printer: {
 } = {
   print(
     path: { node: unknown },
-    options: { tabWidth?: number; useTabs?: boolean; printWidth?: number },
+    options: {
+      tabWidth?: number;
+      useTabs?: boolean;
+      printWidth?: number;
+      originalText?: string;
+    },
     print: unknown,
     args: unknown,
   ) {
@@ -401,6 +470,10 @@ export const printer: {
     }
 
     if (isWgslNode(path.node)) {
+      if (isTranslationUnit(path.node)) {
+        return printTranslationUnitWithBlankLines(path as never, print);
+      }
+
       if (isStructDeclaration(path.node)) {
         return printStructWithBlankLines(path as never, print);
       }
@@ -429,8 +502,21 @@ export const printer: {
           isWeslItem(previous) &&
           previous.kind === "Import" &&
           !(isWeslItem(current) && current.kind === "Import");
+        const separatesDeclarations =
+          !(isWeslItem(previous) && previous.kind === "Import") ||
+          !(isWeslItem(current) && current.kind === "Import");
+        const preservesBlankLine = hasBlankLineBetween(
+          previous,
+          current,
+          options.originalText,
+        );
 
-        result.push(hardline, ...(separatesImports ? [hardline] : []));
+        result.push(
+          hardline,
+          ...(separatesImports || separatesDeclarations || preservesBlankLine
+            ? [hardline]
+            : []),
+        );
       }
 
       result.push(docs[index]);
