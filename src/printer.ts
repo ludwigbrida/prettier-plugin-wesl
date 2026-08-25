@@ -105,7 +105,12 @@ interface DelimiterContext {
 
 function formatItem(
   tokens: IToken[],
-  options: { tabWidth?: number; useTabs?: boolean; printWidth?: number },
+  options: {
+    tabWidth?: number;
+    useTabs?: boolean;
+    printWidth?: number;
+    originalText?: string;
+  },
   flatImports = false,
 ): string {
   const indentUnit = options.useTabs ? "\t" : " ".repeat(options.tabWidth ?? 2);
@@ -160,6 +165,21 @@ function formatItem(
   const currentLineLength = () => output.length - output.lastIndexOf("\n") - 1;
   const nextIsClose = (index: number) =>
     tokens[index + 1]?.image === ")" || tokens[index + 1]?.image === "}";
+  const hasBlankLineAfter = (index: number) => {
+    const current = tokens[index];
+    const next = tokens[index + 1];
+
+    return (
+      options.originalText !== undefined &&
+      next !== undefined &&
+      /\r?\n[\t ]*\r?\n/.test(
+        options.originalText.slice(
+          (current.endOffset ?? -1) + 1,
+          next.startOffset ?? current.endOffset ?? 0,
+        ),
+      )
+    );
+  };
 
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index];
@@ -216,6 +236,22 @@ function formatItem(
       }
 
       append("}");
+      const next = tokens[index + 1]?.image;
+
+      if (
+        context?.kind === "block" &&
+        next !== undefined &&
+        next !== ";" &&
+        next !== "else" &&
+        next !== "}"
+      ) {
+        newline();
+
+        if (hasBlankLineAfter(index)) {
+          blankline();
+        }
+      }
+
       previous = image;
       continue;
     }
@@ -292,6 +328,10 @@ function formatItem(
         append(" ");
       } else {
         newline();
+
+        if (hasBlankLineAfter(index)) {
+          blankline();
+        }
       }
     } else {
       if (image === "fn" && hasLeadingFunctionAttribute && !atLineStart()) {
@@ -350,19 +390,6 @@ function isStructDeclaration(
   );
 }
 
-function isTranslationUnit(node: unknown): node is {
-  kind: "TranslationUnit";
-  directives: unknown[];
-  declarations: unknown[];
-} {
-  return (
-    typeof node === "object" &&
-    node !== null &&
-    "kind" in node &&
-    node.kind === "TranslationUnit"
-  );
-}
-
 function printStructWithBlankLines(
   path: { node: { name: string; members: unknown[] } },
   print: unknown,
@@ -386,41 +413,6 @@ function printStructWithBlankLines(
     hardline,
     "}",
   ];
-}
-
-function printTranslationUnitWithBlankLines(
-  path: {
-    node: {
-      directives: unknown[];
-      declarations: unknown[];
-    };
-  },
-  print: unknown,
-): Doc {
-  const docsPath = path as unknown as {
-    map: (print: unknown, property: string) => Doc[];
-  };
-  const directives = docsPath.map(print, "directives");
-  const declarations = docsPath.map(print, "declarations");
-  const result: Doc[] = [];
-
-  for (const directive of directives) {
-    if (result.length > 0) {
-      result.push(hardline);
-    }
-
-    result.push(directive);
-  }
-
-  for (const declaration of declarations) {
-    if (result.length > 0) {
-      result.push(hardline, hardline);
-    }
-
-    result.push(declaration);
-  }
-
-  return result.length === 0 ? "" : [...result, hardline];
 }
 
 function hasBlankLineBetween(
@@ -470,10 +462,6 @@ export const printer: {
     }
 
     if (isWgslNode(path.node)) {
-      if (isTranslationUnit(path.node)) {
-        return printTranslationUnitWithBlankLines(path as never, print);
-      }
-
       if (isStructDeclaration(path.node)) {
         return printStructWithBlankLines(path as never, print);
       }
@@ -502,9 +490,6 @@ export const printer: {
           isWeslItem(previous) &&
           previous.kind === "Import" &&
           !(isWeslItem(current) && current.kind === "Import");
-        const separatesDeclarations =
-          !(isWeslItem(previous) && previous.kind === "Import") ||
-          !(isWeslItem(current) && current.kind === "Import");
         const preservesBlankLine = hasBlankLineBetween(
           previous,
           current,
@@ -513,9 +498,7 @@ export const printer: {
 
         result.push(
           hardline,
-          ...(separatesImports || separatesDeclarations || preservesBlankLine
-            ? [hardline]
-            : []),
+          ...(separatesImports || preservesBlankLine ? [hardline] : []),
         );
       }
 
